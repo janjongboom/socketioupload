@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Socket.io whoah</title>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <h1><%=title%></h1>
+    <p>Online now: <span id="online">1</span></p>
+    <form id="send">
+        <input type="text" id="inp"/> <input type="submit" value="Send!"/>
+    </form>
+    <div id="results">
+        
+    </div>
+    
+    <progress id="progress" value="0" max="1000"></progress>
+    
+    <div id="drop" style="width:300px; height: 300px; border: solid 1px gray"></div>
+    
+    <img id="loaded"></img>
+        
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      var socket = io.connect('<%=url%>');
+      
+      var results = document.getElementById("results"),
+          sendForm = document.getElementById("send"),
+          online = document.getElementById("online"),
+          img = document.getElementById("loaded");
+      
+      socket.on('message', function(data) {
+          var el = document.createElement("p");
+          el.innerHTML = data.text;
+          results.appendChild(el);
+      });
+      
+      socket.on('users', function(data) {
+          online.innerHTML = data.online;
+      });
+      
+      var file = '';
+      socket.on('filepart', function (data) {
+          file += data.raw;
+      });
+      socket.on('filecomplete', function (data) {
+          img.src = file;
+          file = '';
+      });
+      
+      sendForm.addEventListener("submit", function (evnt) {
+            socket.emit('message', {
+                text: document.getElementById("inp").value
+            });
+            
+            document.getElementById("inp").value = "";
+          
+          if (evnt.preventDefault) {
+              evnt.preventDefault();
+          }
+          return false;
+          
+      });
+    </script>
+    
+    <script>
+        function cancel(e) {
+            if (e.preventDefault) e.preventDefault(); // required by FF + Safari
+            e.dataTransfer.dropEffect = 'copy'; // tells the browser what drop effect is allowed here
+            return false; // required by IE
+        }
+        
+        var drop = document.querySelector('#drop'),
+            progress = document.querySelector('#progress');
+        drop.addEventListener("dragover", cancel);
+        drop.addEventListener("dragenter", cancel);
+        
+        var isRegistered = false;
+        drop.addEventListener("drop", function (ev) {
+            ev.preventDefault();
+                        
+            var fr = new FileReader();
+            fr.onload = function() {
+                // send in small chunks, lets say... 20 KB (*2?):
+                var size = 20 * 1024;
+                var chunks = ((fr.result.length / (size)) | 0) + 1;
+                
+                progress.max = chunks;
+                
+                var counter = 0;
+                                
+                var onChunkReceived = function (data) {
+                    progress.value = counter;
+                    sendChunk();                    
+                };
+                
+                var sendChunk = function () {
+                    counter = counter + 1;
+                    
+                    if (counter <= chunks) {
+                        var s = (counter-1) * size;
+                        var e = s + size;
+                        socket.emit("chunk-send", { raw: fr.result.substring(s, e) });
+                    }
+                    else {
+                        socket.emit("filecomplete", { raw: 'hi' });
+                        drop.innerHTML = "Klaar!";
+                        socket.removeListener('chunk-received', onChunkReceived); 
+                    }
+                };
+                
+                socket.on("chunk-received", onChunkReceived);
+                
+                sendChunk();
+            };
+            fr.readAsDataURL(ev.dataTransfer.files[0]);
+        });
+    </script>    
+  </body>
+</html>
